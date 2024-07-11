@@ -13,6 +13,7 @@ import (
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/gptscript-ai/gptscript/pkg/engine"
 	"github.com/gptscript-ai/gptscript/pkg/types"
+	"golang.org/x/exp/maps"
 )
 
 var toolNameRegex = regexp.MustCompile(`[^a-zA-Z0-9_-]+`)
@@ -256,18 +257,31 @@ func getOpenAPITools(t *openapi3.T, defaultHost string) ([]types.Tool, error) {
 				var current []engine.SecurityInfo
 				for name := range auth {
 					if scheme, ok := t.Components.SecuritySchemes[name]; ok {
-						if !slices.Contains(engine.SupportedSecurityTypes, scheme.Value.Type) {
+						if !slices.Contains(engine.SupportedSecurityTypes, scheme.Value.Type) ||
+							(scheme.Value.Type == "oauth2" && defaultHost == "") {
 							// There is an unsupported type in this auth, so move on to the next one.
+							// oauth2 is only supported if we have a defaultHost (Acorn Gateway) to send the user to.
 							continue outer
 						}
 
-						current = append(current, engine.SecurityInfo{
+						info := engine.SecurityInfo{
 							Type:       scheme.Value.Type,
 							Name:       name,
 							In:         scheme.Value.In,
 							Scheme:     scheme.Value.Scheme,
 							APIKeyName: scheme.Value.Name,
-						})
+							FileSource: defaultHost,
+						}
+
+						// Here, if the scheme is OAuth2 we intentionally request all the scopes defined for it.
+						// It is a bad UX if the first tool call requires scope A, but the second tool call requires scope B,
+						// and the user has to go through the auth flow multiple times. So we just grab all of them.
+						if scheme.Value.Type == "oauth2" && scheme.Value.Flows != nil && scheme.Value.Flows.AuthorizationCode != nil {
+							info.Scopes = maps.Keys(scheme.Value.Flows.AuthorizationCode.Scopes)
+							sort.Strings(info.Scopes)
+						}
+
+						current = append(current, info)
 					}
 				}
 

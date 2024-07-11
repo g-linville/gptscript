@@ -18,7 +18,7 @@ import (
 
 var (
 	SupportedMIMETypes     = []string{"application/json", "text/plain", "multipart/form-data"}
-	SupportedSecurityTypes = []string{"apiKey", "http"}
+	SupportedSecurityTypes = []string{"apiKey", "http", "oauth2"}
 )
 
 type Parameter struct {
@@ -29,11 +29,13 @@ type Parameter struct {
 
 // A SecurityInfo represents a security scheme in OpenAPI.
 type SecurityInfo struct {
-	Name       string `json:"name"`       // name as defined in the security schemes
-	Type       string `json:"type"`       // http or apiKey
-	Scheme     string `json:"scheme"`     // bearer or basic, for type==http
-	APIKeyName string `json:"apiKeyName"` // name of the API key, for type==apiKey
-	In         string `json:"in"`         // header, query, or cookie, for type==apiKey
+	Name       string   `json:"name"`       // name as defined in the security schemes
+	Type       string   `json:"type"`       // http or apiKey or oauth2
+	Scheme     string   `json:"scheme"`     // bearer or basic, for type==http
+	APIKeyName string   `json:"apiKeyName"` // name of the API key, for type==apiKey
+	In         string   `json:"in"`         // header, query, or cookie, for type==apiKey
+	FileSource string   `json:"fileSource"` // remote source of the OpenAPI file, used for resolving Gateway info for oauth2
+	Scopes     []string `json:"scopes"`     // (only for oauth2) list of scopes to request
 }
 
 func (i SecurityInfo) GetCredentialToolStrings(hostname string) []string {
@@ -55,6 +57,18 @@ func (i SecurityInfo) GetCredentialToolStrings(hostname string) []string {
 					field = "username"
 				}
 			}
+		case "oauth2":
+			source, err := url.Parse(i.FileSource)
+			if err != nil {
+				continue
+			}
+
+			pathPieces := strings.Split(source.Path, "/")
+			if len(pathPieces) > 3 {
+				tools = append(tools, fmt.Sprintf("github.com/gptscript-ai/gateway-oauth2 as %s with %s as env and %q as gatewayHost and %q as appId and %q as scope",
+					cred, v, source.Scheme+"://"+source.Host, pathPieces[2], strings.Join(i.Scopes, " ")))
+			}
+			continue
 		}
 
 		tools = append(tools, fmt.Sprintf("github.com/gptscript-ai/credential as %s with %s as env and %q as message and %q as field",
@@ -64,7 +78,13 @@ func (i SecurityInfo) GetCredentialToolStrings(hostname string) []string {
 }
 
 func (i SecurityInfo) getCredentialNamesAndEnvVars(hostname string) map[string]string {
-	if i.Type == "http" && i.Scheme == "basic" {
+	if i.Type == "oauth2" {
+		// The name of the environment variable here matches the bearer token env var that gptscript will check for
+		// when it runs the tool. https://docs.gptscript.ai/tools/openapi#2-bearer-token-for-server
+		return map[string]string{
+			hostname + i.Name: "GPTSCRIPT_" + env.ToEnvLike(hostname) + "_BEARER_TOKEN",
+		}
+	} else if i.Type == "http" && i.Scheme == "basic" {
 		return map[string]string{
 			hostname + i.Name + "Username": "GPTSCRIPT_" + env.ToEnvLike(hostname) + "_" + env.ToEnvLike(i.Name) + "_USERNAME",
 			hostname + i.Name + "Password": "GPTSCRIPT_" + env.ToEnvLike(hostname) + "_" + env.ToEnvLike(i.Name) + "_PASSWORD",
