@@ -31,8 +31,10 @@ func Run(operationID, defaultHost, args string, t *openapi3.T, envs []string) (s
 		args = "{}"
 	}
 	schemaJSON, opInfo, found, err := GetSchema(operationID, defaultHost, t)
-	if err != nil || !found {
+	if err != nil {
 		return "", false, err
+	} else if !found {
+		return "", false, fmt.Errorf("operation %s not found in OpenAPI spec", operationID)
 	}
 
 	// Validate args against the schema.
