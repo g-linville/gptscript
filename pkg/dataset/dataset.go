@@ -170,26 +170,32 @@ func (d *FolderDataset) Length() int {
 }
 
 func (d *FolderDataset) Nth(i int) (string, error) {
+	data, _, err := d.nthWithCurrentSize(i, 0)
+	return data, err
+}
+
+func (d *FolderDataset) nthWithCurrentSize(i int, currentSize int64) (string, int64, error) {
 	if i < 0 || i >= len(d.Files) {
-		return "", fmt.Errorf("index %d out of bounds for dataset %s", i, d.ID)
+		return "", 0, fmt.Errorf("index %d out of bounds for dataset %s", i, d.ID)
 	}
 
 	fileName := d.Files[i]
 	fileStat, err := os.Stat(fileName)
 	if err != nil {
-		return "", fmt.Errorf("error getting info for file %s: %v", fileName, err)
+		return "", 0, fmt.Errorf("error getting info for file %s: %v", fileName, err)
 	}
 
-	if fileStat.Size() > 10*1024*1024 { // 10 MB
-		return "", fmt.Errorf("file %s is too large to read (max: 10 MB)", fileName)
+	if fileStat.Size()+currentSize > 100*1024*1024 { // 100 MiB
+		return "", 0, fmt.Errorf("dataset %s is too large to read (combined file size must be under 100 MiB)", d.ID)
 	}
+	currentSize += fileStat.Size()
 
 	contents, err := os.ReadFile(fileName)
 	if err != nil {
-		return "", fmt.Errorf("error reading file %s: %v", fileName, err)
+		return "", 0, fmt.Errorf("error reading file %s: %v", fileName, err)
 	}
 
-	return string(contents), nil
+	return string(contents), currentSize, nil
 }
 
 func (d *FolderDataset) Range(i, j int) ([]string, error) {
@@ -201,9 +207,14 @@ func (d *FolderDataset) Range(i, j int) ([]string, error) {
 		return nil, fmt.Errorf("range %d - %d out of bounds for dataset %s", i, j, d.ID)
 	}
 
-	var data []string
+	var (
+		data     []string
+		contents string
+		size     int64
+		err      error
+	)
 	for k := i; k <= j; k++ {
-		contents, err := d.Nth(k)
+		contents, size, err = d.nthWithCurrentSize(k, size)
 		if err != nil {
 			return nil, err
 		}

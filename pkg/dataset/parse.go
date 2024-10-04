@@ -27,6 +27,8 @@ func ParseDataset(id, workspace string) (Dataset, error) {
 
 	if idInfo.IsDir() {
 		return parseDir(id, workspace)
+	} else if idInfo.Size() > 100*1024*1024 { // 100 MiB
+		return nil, fmt.Errorf("dataset %s is too large (over 100 MiB)", id)
 	}
 
 	idContents, err := os.ReadFile(idFile)
