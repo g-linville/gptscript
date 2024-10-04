@@ -101,30 +101,37 @@ func parseMeta(id, workspace string, meta metadata) (Dataset, error) {
 }
 
 func parseDir(id, workspace string) (Dataset, error) {
-	dirContents, err := os.ReadDir(workspace + string(os.PathSeparator) + id)
+	files, err := recursiveGetFilenames(id, workspace)
 	if err != nil {
-		return nil, fmt.Errorf("error reading directory contents for dataset %s: %v", id, err)
-	}
-
-	files := map[string][]byte{}
-	for _, entry := range dirContents {
-		if entry.IsDir() {
-			// TODO - figure out what we want to do with subfolders
-		}
-
-		entryName := workspace + string(os.PathSeparator) + id + string(os.PathSeparator) + entry.Name()
-		entryContents, err := os.ReadFile(entryName)
-		if err != nil {
-			return nil, fmt.Errorf("error reading data from file %s: %v", entryName, err)
-		}
-
-		files[entryName] = entryContents
+		return nil, err
 	}
 
 	return &FolderDataset{
 		ID:    id,
 		Files: files,
 	}, nil
+}
+
+func recursiveGetFilenames(id, workspace string) ([]string, error) {
+	dirContents, err := os.ReadDir(workspace + string(os.PathSeparator) + id)
+	if err != nil {
+		return nil, fmt.Errorf("error reading directory contents for dataset %s: %v", id, err)
+	}
+
+	var filenames []string
+	for _, entry := range dirContents {
+		if entry.IsDir() {
+			subFiles, err := recursiveGetFilenames(id+string(os.PathSeparator)+entry.Name(), workspace)
+			if err != nil {
+				return nil, err
+			}
+			filenames = append(filenames, subFiles...)
+		} else {
+			filenames = append(filenames, workspace+string(os.PathSeparator)+id+string(os.PathSeparator)+entry.Name())
+		}
+	}
+
+	return filenames, nil
 }
 
 func normalizeLineEndings(contents []byte) []byte {

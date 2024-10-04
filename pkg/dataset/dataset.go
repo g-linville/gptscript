@@ -3,10 +3,8 @@ package dataset
 import (
 	"encoding/json"
 	"fmt"
-	"slices"
+	"os"
 	"strings"
-
-	"golang.org/x/exp/maps"
 )
 
 type Dataset interface {
@@ -156,7 +154,7 @@ func (d *FileDataset) Range(i, j int) ([]string, error) {
 // FolderDataset represents a folder in the workspace, where each file is a single piece of data.
 type FolderDataset struct {
 	ID    string
-	Files map[string][]byte
+	Files []string
 }
 
 func (d *FolderDataset) GetID() string {
@@ -172,14 +170,26 @@ func (d *FolderDataset) Length() int {
 }
 
 func (d *FolderDataset) Nth(i int) (string, error) {
-	fileNames := maps.Keys(d.Files)
-	slices.Sort(fileNames)
-
-	if i < 0 || i >= len(fileNames) {
+	if i < 0 || i >= len(d.Files) {
 		return "", fmt.Errorf("index %d out of bounds for dataset %s", i, d.ID)
 	}
 
-	return string(d.Files[fileNames[i]]), nil
+	fileName := d.Files[i]
+	fileStat, err := os.Stat(fileName)
+	if err != nil {
+		return "", fmt.Errorf("error getting info for file %s: %v", fileName, err)
+	}
+
+	if fileStat.Size() > 10*1024*1024 { // 10 MB
+		return "", fmt.Errorf("file %s is too large to read (max: 10 MB)", fileName)
+	}
+
+	contents, err := os.ReadFile(fileName)
+	if err != nil {
+		return "", fmt.Errorf("error reading file %s: %v", fileName, err)
+	}
+
+	return string(contents), nil
 }
 
 func (d *FolderDataset) Range(i, j int) ([]string, error) {
@@ -187,16 +197,17 @@ func (d *FolderDataset) Range(i, j int) ([]string, error) {
 		return nil, fmt.Errorf("invalid range %d - %d for dataset %s", i, j, d.ID)
 	}
 
-	fileNames := maps.Keys(d.Files)
-	slices.Sort(fileNames)
-
-	if i < 0 || j >= len(fileNames) {
+	if i < 0 || j >= len(d.Files) {
 		return nil, fmt.Errorf("range %d - %d out of bounds for dataset %s", i, j, d.ID)
 	}
 
 	var data []string
 	for k := i; k <= j; k++ {
-		data = append(data, string(d.Files[fileNames[k]]))
+		contents, err := d.Nth(k)
+		if err != nil {
+			return nil, err
+		}
+		data = append(data, contents)
 	}
 
 	return data, nil
